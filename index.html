@@ -649,6 +649,10 @@ button:disabled{ opacity:.55; cursor:not-allowed; box-shadow:none; }
 @media (max-width:720px){.prof-grid .wide{grid-column:span 1;}}
 
 </style>
+
+<style id="qlog-v6-central-styles">
+.teacher-combo{position:relative;width:100%}.teacher-combo input.teacher-search{width:100%;padding-right:34px}.teacher-combo-menu{display:none;position:absolute;z-index:5000;top:calc(100% + 4px);left:0;right:0;max-height:260px;overflow:auto;background:#fff;border:1px solid #cbd5e1;border-radius:12px;box-shadow:0 16px 40px rgba(15,23,42,.18);padding:5px}.teacher-combo.open .teacher-combo-menu{display:block}.teacher-option{display:block;width:100%;text-align:left;background:#fff!important;color:#0f172a!important;border:0!important;box-shadow:none!important;padding:10px 12px!important;border-radius:9px!important}.teacher-option:hover,.teacher-option.active{background:#eef2ff!important}.teacher-option b{display:block;font-size:14px}.teacher-option small{display:block;color:#64748b;margin-top:2px}.teacher-empty{padding:12px;color:#64748b;font-size:13px}.live-sync-note{display:inline-flex;align-items:center;gap:7px;font-size:12px;font-weight:700;color:#047857;background:#ecfdf5;border:1px solid #a7f3d0;border-radius:999px;padding:7px 11px}.live-sync-note:before{content:'';width:7px;height:7px;border-radius:50%;background:#10b981}
+</style>
 </head>
 <body>
 
@@ -869,7 +873,7 @@ button:disabled{ opacity:.55; cursor:not-allowed; box-shadow:none; }
         <h3>🎓 Teacher Certificate Repository</h3>
         <p>Upload and maintain a chronological log of teacher certificates. PDF, images, Office files, and other document types are accepted up to 50 MB per file.</p>
         <div class="prof-grid">
-            <div><label>Teacher</label><select id="certTeacher"></select></div>
+            <div><label>Teacher</label><div class="teacher-combo" id="certTeacherCombo"><input class="teacher-search" id="certTeacherSearch" placeholder="Type/search teacher name or ID..." autocomplete="off" onfocus="qlogOpenTeacherCombo('certTeacher')" oninput="qlogFilterTeacherCombo('certTeacher')"><input type="hidden" id="certTeacher"><div class="teacher-combo-menu" id="certTeacherMenu"></div></div></div>
             <div><label>Certificate Title</label><input id="certTitle" placeholder="e.g. Division INSET Certificate"></div>
             <div><label>Certificate Type</label><input id="certType" placeholder="Training, Seminar, Recognition, etc."></div>
             <div><label>Issuer / Provider</label><input id="certIssuer" placeholder="DepEd / Division / School / Provider"></div>
@@ -879,7 +883,7 @@ button:disabled{ opacity:.55; cursor:not-allowed; box-shadow:none; }
         </div>
         <div class="prof-toolbar">
             <button onclick="uploadCertificate()">⬆ Upload Certificate</button>
-            <button style="background:#64748b" onclick="loadCertificates()">↻ Refresh List</button>
+            <span class="live-sync-note">Socket.IO Live Sync</span>
         </div>
         <div id="certUploadMsg" class="file-meta"></div>
     </div>
@@ -897,14 +901,14 @@ button:disabled{ opacity:.55; cursor:not-allowed; box-shadow:none; }
         <h3>🧭 eIPCRF Upload & Training Needs Assessment</h3>
         <p>Upload each teacher's eIPCRF workbook. QLog automatically searches the workbook for <b>Development Needs</b>, consolidates the latest upload of every teacher, and ranks the most common needs for TNA.</p>
         <div class="prof-grid">
-            <div><label>Teacher</label><select id="ipcrfTeacher"></select></div>
+            <div><label>Teacher</label><div class="teacher-combo" id="ipcrfTeacherCombo"><input class="teacher-search" id="ipcrfTeacherSearch" placeholder="Type/search teacher name or ID..." autocomplete="off" onfocus="qlogOpenTeacherCombo('ipcrfTeacher')" oninput="qlogFilterTeacherCombo('ipcrfTeacher')"><input type="hidden" id="ipcrfTeacher"><div class="teacher-combo-menu" id="ipcrfTeacherMenu"></div></div></div>
             <div><label>School Year</label><input id="ipcrfSY" placeholder="e.g. 2025-2026"></div>
             <div class="wide"><label>eIPCRF File</label><input id="ipcrfFile" type="file" accept=".xlsx,.xlsm,.xls,.csv"></div>
         </div>
         <p class="file-meta">Automatic Development Needs extraction supports Excel/CSV eIPCRF files (.xlsx, .xlsm, .xls, .csv). A revised upload for the same teacher is retained in history, but only the newest upload is included in the current TNA.</p>
         <div class="prof-toolbar">
             <button onclick="uploadEipcrf()">⬆ Upload & Analyze eIPCRF</button>
-            <button style="background:#64748b" onclick="loadEipcrfUploads()">↻ Refresh Uploads</button>
+            <span class="live-sync-note">Socket.IO Live Sync</span>
         </div>
         <div id="ipcrfUploadMsg" class="file-meta"></div>
     </div>
@@ -1158,22 +1162,57 @@ button:disabled{ opacity:.55; cursor:not-allowed; box-shadow:none; }
 <div id="toast" class="toast"></div>
 
 <script>
-/* ===== SQLite compatibility bridge ===== */
+/* ===== QLog V6 centralized SQLite + Socket.IO bridge ===== */
 (function(){
-    var SYNC_KEYS=['people','logs','books','borrowLogs','configData','dynamicFilterData','borrowPolicies','reservations','auditLogs'];
-    var SYNC={};SYNC_KEYS.forEach(function(k){SYNC[k]=true;});
-    var rawSet=Storage.prototype.setItem,rawRemove=Storage.prototype.removeItem;
-    var serverReady=false,pendingWrites=0,writeSeq=0;
-    function snapshot(){var out={};SYNC_KEYS.forEach(function(k){var v=localStorage.getItem(k);if(v!==null){try{out[k]=JSON.parse(v);}catch(e){}}});return out;}
-    function setDirty(v){try{rawSet.call(localStorage,'qlogSqliteDirty',v?'1':'0');}catch(e){}}
-    function syncXHR(method,url,body){try{var x=new XMLHttpRequest();x.open(method,url,false);if(body)x.setRequestHeader('Content-Type','text/plain;charset=UTF-8');x.send(body?JSON.stringify(body):null);if(x.status>=200&&x.status<300)return JSON.parse(x.responseText||'{}');}catch(e){}return null;}
-    if(location.protocol==='http:'||location.protocol==='https:'){try{var dirty=localStorage.getItem('qlogSqliteDirty')==='1';var r=syncXHR('GET',qlogApiUrl('/api/state'));if(r&&r.ok){serverReady=true;if(dirty){var pushed=syncXHR('POST',qlogApiUrl('/api/state/bulk'),{state:snapshot()});if(pushed&&pushed.ok)setDirty(false);}else if(r.initialized&&r.state){Object.keys(r.state).forEach(function(k){if(SYNC[k])rawSet.call(localStorage,k,JSON.stringify(r.state[k]));});}else{var seeded=syncXHR('POST',qlogApiUrl('/api/state/bulk'),{state:snapshot()});if(seeded&&seeded.ok)setDirty(false);}}}catch(e){console.warn('[QLog SQLite] Startup sync unavailable:',e);}}
-    async function reconcile(){try{var hr=await fetch(qlogApiUrl('/api/health'),{cache:'no-store'});if(!hr.ok)throw new Error('health');serverReady=true;var rr=await fetch(qlogApiUrl('/api/state/bulk'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({state:snapshot()}),cache:'no-store'});if(!rr.ok)throw new Error('bulk');setDirty(false);return true;}catch(e){serverReady=false;setDirty(true);return false;}}
-    function writeThrough(key,value,isDelete){if(!SYNC[key])return;setDirty(true);writeSeq++;var mySeq=writeSeq;pendingWrites++;if(!serverReady){pendingWrites--;reconcile();return;}var opts={method:isDelete?'DELETE':'PUT',headers:{'Content-Type':'application/json'},keepalive:true,cache:'no-store'};if(!isDelete)opts.body=JSON.stringify({value:value});fetch(qlogApiUrl('/api/state/'+encodeURIComponent(key)),opts).then(function(resp){if(!resp.ok)throw new Error('HTTP '+resp.status);return resp.json();}).then(function(){pendingWrites--;if(pendingWrites===0&&mySeq===writeSeq)setDirty(false);}).catch(function(){pendingWrites--;serverReady=false;setDirty(true);});}
-    Storage.prototype.setItem=function(key,value){rawSet.call(this,key,value);if(this===localStorage&&SYNC[key]){var parsed=value;try{parsed=JSON.parse(value);}catch(e){}writeThrough(key,parsed,false);}};
-    Storage.prototype.removeItem=function(key){rawRemove.call(this,key);if(this===localStorage&&SYNC[key])writeThrough(key,null,true);};
-    setInterval(function(){if(localStorage.getItem('qlogSqliteDirty')==='1'||!serverReady)reconcile();},15000);
-    window.qlogSqliteServerReady=function(){return serverReady;};
+  var SYNC_KEYS=['people','logs','books','borrowLogs','configData','dynamicFilterData','borrowPolicies','reservations','auditLogs','qlpSuperAuth'];
+  var SYNC={};SYNC_KEYS.forEach(function(k){SYNC[k]=true;});
+  var rawSet=Storage.prototype.setItem,rawRemove=Storage.prototype.removeItem;
+  var applyingRemote=false,serverReady=false,socketReady=false,socket=null;
+  var cid=localStorage.getItem('qlogClientId');
+  if(!cid){cid='qlog-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2);rawSet.call(localStorage,'qlogClientId',cid);}
+  window.QLOG_CLIENT_ID=cid;
+  function parseLocal(k){var v=localStorage.getItem(k);if(v===null)return undefined;try{return JSON.parse(v);}catch(e){return v;}}
+  function snapshot(){var out={};SYNC_KEYS.forEach(function(k){var v=parseLocal(k);if(v!==undefined)out[k]=v;});return out;}
+  function headers(h){h=h||{};h['X-QLog-Client-Id']=cid;return h;}
+  async function api(path,opts){opts=opts||{};opts.headers=headers(opts.headers||{});opts.cache='no-store';return fetch(qlogApiUrl(path),opts);}
+  function rawApply(key,value,deleted){applyingRemote=true;try{if(deleted)rawRemove.call(localStorage,key);else rawSet.call(localStorage,key,JSON.stringify(value));}finally{applyingRemote=false;}if(typeof window.qlogReloadStateKey==='function')window.qlogReloadStateKey(key,value,deleted);}
+  async function pushKey(key,value,deleted){if(!SYNC[key])return;try{var opts={method:deleted?'DELETE':'PUT',headers:{'Content-Type':'application/json'}};if(!deleted)opts.body=JSON.stringify({value:value});var r=await api('/api/state/'+encodeURIComponent(key),opts);if(!r.ok)throw new Error('HTTP '+r.status);serverReady=true;}catch(e){serverReady=false;console.warn('[QLog Central] state write queued in local mirror:',key,e.message);}}
+  Storage.prototype.setItem=function(key,value){rawSet.call(this,key,value);if(this===localStorage&&SYNC[key]&&!applyingRemote){var parsed=value;try{parsed=JSON.parse(value);}catch(e){}pushKey(key,parsed,false);}};
+  Storage.prototype.removeItem=function(key){rawRemove.call(this,key);if(this===localStorage&&SYNC[key]&&!applyingRemote)pushKey(key,null,true);};
+  async function loadSocket(){
+    if(window.io)return true;
+    return new Promise(function(resolve){var s=document.createElement('script');s.src=qlogApiUrl('/socket.io/socket.io.js');s.async=true;s.onload=function(){resolve(!!window.io);};s.onerror=function(){resolve(false);};document.head.appendChild(s);});
+  }
+  async function connectSocket(){
+    if(!(await loadSocket())){socketReady=false;window.dispatchEvent(new CustomEvent('qlog-live-status'));return false;}
+    socket=window.io(window.QLOG_API_BASE,{auth:{clientId:cid},query:{clientId:cid},transports:['websocket','polling'],reconnection:true,reconnectionDelay:1000,reconnectionDelayMax:5000});
+    window.qlogSocket=socket;
+    socket.on('connect',function(){socketReady=true;serverReady=true;window.dispatchEvent(new CustomEvent('qlog-live-status'));});
+    socket.on('disconnect',function(){socketReady=false;window.dispatchEvent(new CustomEvent('qlog-live-status'));});
+    socket.on('connect_error',function(){socketReady=false;window.dispatchEvent(new CustomEvent('qlog-live-status'));});
+    socket.on('state:changed',function(m){if(!m||m.sourceClientId===cid)return;rawApply(m.key,m.value,!!m.deleted);});
+    socket.on('state:bulk',function(m){if(!m||m.sourceClientId===cid||!m.state)return;Object.keys(m.state).forEach(function(k){if(SYNC[k])rawApply(k,m.state[k],false);});});
+    socket.on('certificates:changed',function(){if(typeof loadCertificates==='function')loadCertificates();});
+    socket.on('eipcrf:changed',function(){if(typeof loadEipcrfUploads==='function')loadEipcrfUploads();if(typeof loadTNAPreview==='function')loadTNAPreview();});
+    socket.on('tna:changed',function(){if(typeof loadTNAPreview==='function')loadTNAPreview();});
+    socket.on('tna:generated',function(m){if(m&&m.tna&&typeof renderTNA==='function'){qlogLastTNA=m.tna;renderTNA(m.tna);}});
+    socket.on('presence:count',function(m){window.QLOG_CONNECTED_CLIENTS=m&&m.connectedClients||0;window.dispatchEvent(new CustomEvent('qlog-live-status'));});
+    return true;
+  }
+  window.qlogCentralBoot=async function(){
+    try{
+      var r=await api('/api/state');if(!r.ok)throw new Error('HTTP '+r.status);var d=await r.json();serverReady=true;
+      var local=snapshot(),server=d.state||{},missing={};
+      // Server is authoritative for keys already present. Seed only missing keys from this browser (migration-safe).
+      Object.keys(server).forEach(function(k){if(SYNC[k])rawApply(k,server[k],false);});
+      SYNC_KEYS.forEach(function(k){if(!(k in server)&&local[k]!==undefined)missing[k]=local[k];});
+      if(Object.keys(missing).length){await api('/api/state/bulk',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({state:missing})});}
+    }catch(e){serverReady=false;console.warn('[QLog Central] Server hydration unavailable; local cache remains usable.',e.message);}
+    await connectSocket();
+    window.dispatchEvent(new CustomEvent('qlog-live-status'));
+    return serverReady;
+  };
+  window.qlogCentralStatus=function(){return {serverReady:serverReady,socketReady:socketReady,clientId:cid,connectedClients:window.QLOG_CONNECTED_CLIENTS||0};};
 })();
 </script>
 <script>
@@ -1190,6 +1229,19 @@ var dup = {};
 var borrowDup = {};
 var pendingVisitorQR = '';
 var visitorTempLogs = {}; 
+function qlogReloadStateKey(key,value,deleted){
+    try{
+        if(key==='people'){ people=Array.isArray(value)?value:[]; renderPeople(); renderTeacherSelectors(); }
+        else if(key==='logs'){ logs=Array.isArray(value)?value:[]; renderLogs(); if(document.getElementById('reports')&&document.getElementById('reports').classList.contains('active'))renderReports(); }
+        else if(key==='books'){ books=Array.isArray(value)?value:[]; if(typeof renderBookInventory==='function')renderBookInventory(); if(typeof renderBorrow==='function')renderBorrow(); }
+        else if(key==='borrowLogs'){ borrowLogs=Array.isArray(value)?value:[]; if(typeof checkOverdueBooks==='function')checkOverdueBooks(); if(typeof renderBorrow==='function')renderBorrow(); }
+        else if(key==='reservations'){ reservations=Array.isArray(value)?value:[]; if(typeof renderReservations==='function')renderReservations(); }
+        else if(key==='auditLogs'){ auditLogs=Array.isArray(value)?value:[]; }
+        else if(key==='configData'){ configData=value||configData; }
+        else if(key==='dynamicFilterData'){ dynamicFilterData=value||dynamicFilterData; if(typeof updateSecondaryFilter==='function')updateSecondaryFilter(); }
+        else if(key==='borrowPolicies'){ borrowPolicies=value||borrowPolicies; if(typeof renderBorrow==='function')renderBorrow(); }
+    }catch(e){console.warn('[QLog Live Sync] render update failed for',key,e);}
+}
 
 var defaultPolicies = {
     'STUDENT': { maxBooks: 3, days: 7 },
@@ -3195,43 +3247,39 @@ var qlogEipcrfUploads = [];
 var qlogLastTNA = null;
 function qlogEsc(v){return String(v==null?'':v).replace(/[&<>"']/g,function(ch){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch];});}
 function qlogFmtDate(v){if(!v)return '--';try{var d=new Date(v);return isNaN(d.getTime())?String(v):d.toLocaleString();}catch(e){return String(v);}}
-function qlogTeacherList(){return people.filter(function(p){return String(p.category||'').toUpperCase()==='TEACHER';}).sort(function(a,b){return String(a.name||'').localeCompare(String(b.name||''));});}
-function renderTeacherSelectors(){var teachers=qlogTeacherList();['certTeacher','ipcrfTeacher'].forEach(function(id){var el=document.getElementById(id);if(!el)return;var cur=el.value,html='<option value="">Select Teacher</option>';teachers.forEach(function(t){html+='<option value="'+qlogEsc(t.id)+'">'+qlogEsc(t.name)+' ('+qlogEsc(t.id)+')</option>';});el.innerHTML=html;if(cur&&teachers.some(function(t){return String(t.id)===String(cur);}))el.value=cur;});}
-function selectedTeacher(selectId){var el=document.getElementById(selectId);if(!el||!el.value)return null;return people.find(function(p){return String(p.id)===String(el.value);})||null;}
-async function qlogApi(url,opts){opts=opts||{};var r=await fetch(qlogApiUrl(url),opts),data=null;try{data=await r.json();}catch(e){data={ok:false,error:'Invalid server response.'};}if(!r.ok||!data.ok)throw new Error(data.error||('HTTP '+r.status));return data;}
+function qlogIsTeacher(p){var c=String((p&&p.category)||'').toUpperCase().replace(/[_-]+/g,' ').replace(/\s+/g,' ').trim();return c==='TEACHER'||c==='TEACHING'||c==='TEACHING PERSONNEL'||c==='FACULTY';}
+function qlogTeacherList(){return people.filter(qlogIsTeacher).sort(function(a,b){return String(a.name||'').localeCompare(String(b.name||''));});}
+function qlogTeacherLabel(t){return String(t.name||'Unnamed Teacher')+' ('+String(t.id||'No ID')+')';}
+function renderTeacherSelectors(){['certTeacher','ipcrfTeacher'].forEach(function(id){var hidden=document.getElementById(id),input=document.getElementById(id+'Search');if(!hidden||!input)return;var t=qlogTeacherList().find(function(x){return String(x.id)===String(hidden.value);});if(t)input.value=qlogTeacherLabel(t);else if(hidden.value){hidden.value='';input.value='';}qlogFilterTeacherCombo(id);});}
+function qlogFilterTeacherCombo(id){var combo=document.getElementById(id+'Combo'),menu=document.getElementById(id+'Menu'),input=document.getElementById(id+'Search'),hidden=document.getElementById(id);if(!combo||!menu||!input)return;var q=input.value.toLowerCase().trim(),teachers=qlogTeacherList();if(hidden&&hidden.value){var selected=teachers.find(function(t){return String(t.id)===String(hidden.value);});if(selected&&q===qlogTeacherLabel(selected).toLowerCase())q='';else if(selected&&input.value!==qlogTeacherLabel(selected))hidden.value='';}var rows=teachers.filter(function(t){return !q||[t.name,t.id,t.category].join(' ').toLowerCase().indexOf(q)>=0;}).slice(0,80);menu.innerHTML=rows.length?rows.map(function(t){return '<button type="button" class="teacher-option" onclick="qlogChooseTeacher(\''+id+'\',\''+qlogEsc(t.id).replace(/&#39;/g,"\\'")+'\')"><b>'+qlogEsc(t.name)+'</b><small>'+qlogEsc(t.id)+' • '+qlogEsc(t.category||'TEACHING')+'</small></button>';}).join(''):'<div class="teacher-empty">No matching teacher. Check Client Inventory category (TEACHING/TEACHER).</div>';}
+function qlogOpenTeacherCombo(id){var combo=document.getElementById(id+'Combo');if(combo){document.querySelectorAll('.teacher-combo.open').forEach(function(x){if(x!==combo)x.classList.remove('open');});combo.classList.add('open');qlogFilterTeacherCombo(id);}}
+function qlogChooseTeacher(id,teacherId){var t=qlogTeacherList().find(function(x){return String(x.id)===String(teacherId);});if(!t)return;document.getElementById(id).value=t.id;document.getElementById(id+'Search').value=qlogTeacherLabel(t);document.getElementById(id+'Combo').classList.remove('open');}
+function selectedTeacher(selectId){var el=document.getElementById(selectId);if(!el||!el.value)return null;return qlogTeacherList().find(function(p){return String(p.id)===String(el.value);})||null;}
+document.addEventListener('click',function(e){document.querySelectorAll('.teacher-combo.open').forEach(function(c){if(!c.contains(e.target))c.classList.remove('open');});});
+async function qlogApi(url,opts){opts=opts||{};opts.headers=opts.headers||{};opts.headers['X-QLog-Client-Id']=window.QLOG_CLIENT_ID||'';opts.cache='no-store';var r=await fetch(qlogApiUrl(url),opts),data=null;try{data=await r.json();}catch(e){data={ok:false,error:'Invalid server response.'};}if(!r.ok||!data.ok)throw new Error(data.error||('HTTP '+r.status));return data;}
 async function uploadCertificate(){var teacher=selectedTeacher('certTeacher'),fileEl=document.getElementById('certFile'),msg=document.getElementById('certUploadMsg');if(!teacher){alert('Select a teacher first.');return;}if(!fileEl.files||!fileEl.files[0]){alert('Select a certificate file.');return;}var fd=new FormData();fd.append('teacherId',teacher.id);fd.append('teacherName',teacher.name);fd.append('title',document.getElementById('certTitle').value.trim());fd.append('certificateType',document.getElementById('certType').value.trim());fd.append('issuer',document.getElementById('certIssuer').value.trim());fd.append('issueDate',document.getElementById('certIssueDate').value);fd.append('notes',document.getElementById('certNotes').value.trim());fd.append('file',fileEl.files[0]);msg.textContent='Uploading certificate...';try{await qlogApi('./api/certificates',{method:'POST',body:fd});msg.textContent='✅ Certificate uploaded and added to the log.';fileEl.value='';document.getElementById('certTitle').value='';document.getElementById('certNotes').value='';toast('Certificate uploaded successfully','green');await loadCertificates();}catch(e){msg.textContent='❌ '+e.message;toast('Certificate upload failed','red');}}
 async function loadCertificates(){var tbody=document.getElementById('certTbl');if(!tbody)return;try{var d=await qlogApi('./api/certificates');qlogCertificates=d.certificates||[];renderCertificateRows();}catch(e){tbody.innerHTML='<tr><td colspan="8">Unable to load certificate log: '+qlogEsc(e.message)+'</td></tr>';}}
 function renderCertificateRows(){var tbody=document.getElementById('certTbl');if(!tbody)return;var q=(document.getElementById('certSearch')||{}).value||'';q=q.toLowerCase();var rows=qlogCertificates.filter(function(c){return !q||[c.teacher_name,c.title,c.certificate_type,c.issuer,c.original_name].join(' ').toLowerCase().indexOf(q)>=0;});if(!rows.length){tbody.innerHTML='<tr><td colspan="8">No certificate uploads found.</td></tr>';return;}tbody.innerHTML=rows.map(function(c,i){return '<tr><td>'+(i+1)+'</td><td><b>'+qlogEsc(c.teacher_name)+'</b><div class="file-meta">'+qlogEsc(c.teacher_id)+'</div></td><td>'+qlogEsc(c.title)+'<div class="file-meta">'+qlogEsc(c.original_name)+'</div></td><td>'+qlogEsc(c.certificate_type||'--')+'<div class="file-meta">'+qlogEsc(c.issuer||'--')+'</div></td><td>'+qlogEsc(c.issue_date||'--')+'</td><td>'+qlogEsc(qlogFmtDate(c.uploaded_at))+'</td><td><button style="padding:6px 9px" onclick="window.open(qlogApiUrl(\'/api/certificates/'+c.id+'/file\'),\'_blank\')">Open</button></td><td><button style="padding:6px 9px;background:#dc2626" onclick="deleteCertificate('+c.id+')">Delete</button></td></tr>';}).join('');}
 async function deleteCertificate(id){if(!confirm('Delete this certificate record and its uploaded file?'))return;try{await qlogApi('./api/certificates/'+id,{method:'DELETE'});toast('Certificate deleted','green');await loadCertificates();}catch(e){alert(e.message);}}
-function _isDevelopmentNeedHeader(v){var s=String(v==null?'':v).toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();return s.indexOf('development need')>=0||s.indexOf('developmental need')>=0;}
-function _looksLikeSectionHeader(v){var s=String(v==null?'':v).trim().toLowerCase();return /^(development needs?|developmental needs?|strengths?|action plan|timeline|resources needed|learning objectives?|intervention|professional development)$/i.test(s);}
-function _splitNeedValue(v){return String(v==null?'':v).replace(/\r/g,'\n').split(/\n+|;|\u2022|\u25cf|\u25aa|\u25e6/).map(function(x){return x.replace(/^\s*(?:\d+[.)-]?|[a-z][.)-]|[-–—])\s*/i,'').trim();}).filter(function(x){return x.length>=3&&x.length<=500&&!_looksLikeSectionHeader(x);});}
-async function extractDevelopmentNeedsFromFile(file){if(typeof XLSX==='undefined')throw new Error('Excel analyzer library is unavailable.');var buf=await file.arrayBuffer();var wb=XLSX.read(new Uint8Array(buf),{type:'array',raw:false}),found=[];wb.SheetNames.forEach(function(name){var sh=wb.Sheets[name],matrix=XLSX.utils.sheet_to_json(sh,{header:1,defval:'',raw:false});for(var r=0;r<matrix.length;r++){var row=matrix[r]||[];for(var c=0;c<row.length;c++){if(!_isDevelopmentNeedHeader(row[c]))continue;var blanks=0;for(var rr=r+1;rr<Math.min(matrix.length,r+80);rr++){var val=String(((matrix[rr]||[])[c])==null?'':(matrix[rr]||[])[c]).trim();if(!val){blanks++;if(blanks>=4)break;continue;}blanks=0;if(_looksLikeSectionHeader(val)&&rr>r+1)break;_splitNeedValue(val).forEach(function(v){found.push(v);});}}}var objs=XLSX.utils.sheet_to_json(sh,{defval:'',raw:false});objs.forEach(function(obj){Object.keys(obj).forEach(function(k){if(_isDevelopmentNeedHeader(k))_splitNeedValue(obj[k]).forEach(function(v){found.push(v);});});});});var uniq={},out=[];found.forEach(function(v){var key=String(v).toLowerCase().replace(/[•●▪◦·]/g,' ').replace(/^\s*(?:\d+[.)-]?|[a-z][.)-])\s*/i,'').replace(/[^a-z0-9\s/&+-]/g,' ').replace(/\s+/g,' ').trim();if(key&&!uniq[key]){uniq[key]=true;out.push(v.trim());}});return out;}
-async function uploadEipcrf(){var teacher=selectedTeacher('ipcrfTeacher'),fileEl=document.getElementById('ipcrfFile'),msg=document.getElementById('ipcrfUploadMsg');if(!teacher){alert('Select a teacher first.');return;}if(!fileEl.files||!fileEl.files[0]){alert('Select an eIPCRF Excel/CSV file.');return;}var file=fileEl.files[0],ext=(file.name.split('.').pop()||'').toLowerCase();if(['xlsx','xlsm','xls','csv'].indexOf(ext)<0){alert('eIPCRF auto-analysis accepts .xlsx, .xlsm, .xls, or .csv files.');return;}msg.textContent='Analyzing Development Needs, then uploading eIPCRF...';try{var extracted=await extractDevelopmentNeedsFromFile(file);var fd=new FormData();fd.append('teacherId',teacher.id);fd.append('teacherName',teacher.name);fd.append('schoolYear',document.getElementById('ipcrfSY').value.trim());fd.append('extractedNeeds',JSON.stringify(extracted));fd.append('file',file);var d=await qlogApi('./api/eipcrf',{method:'POST',body:fd});var n=(d.developmentNeeds||[]).length;msg.textContent=n?'✅ Uploaded. '+n+' unique Development Need(s) automatically detected.':'⚠ Uploaded, but no Development Needs were confidently detected.';fileEl.value='';toast(n?'eIPCRF analyzed successfully':'eIPCRF uploaded - review analysis status',n?'green':'yellow');await loadEipcrfUploads();}catch(e){msg.textContent='❌ '+e.message;toast('eIPCRF upload failed','red');}}
+async function uploadEipcrf(){var teacher=selectedTeacher('ipcrfTeacher'),fileEl=document.getElementById('ipcrfFile'),msg=document.getElementById('ipcrfUploadMsg');if(!teacher){alert('Select a teacher first.');return;}if(!fileEl.files||!fileEl.files[0]){alert('Select an eIPCRF Excel/CSV file.');return;}var file=fileEl.files[0],ext=(file.name.split('.').pop()||'').toLowerCase();if(['xlsx','xlsm','xls','csv'].indexOf(ext)<0){alert('eIPCRF accepts .xlsx, .xlsm, .xls, or .csv files.');return;}msg.textContent='Uploading to the central server and analyzing PART 4-IDP Development Needs...';try{var fd=new FormData();fd.append('teacherId',teacher.id);fd.append('teacherName',teacher.name);fd.append('schoolYear',document.getElementById('ipcrfSY').value.trim());fd.append('file',file);var d=await qlogApi('/api/eipcrf',{method:'POST',body:fd});var n=(d.developmentNeeds||[]).length;msg.textContent=n?'✅ Server analysis complete: '+n+' Development Need(s) detected.':'⚠ Uploaded, but the server found no finalized Development Needs. '+((d.upload&&d.upload.parse_message)||'');fileEl.value='';toast(n?'eIPCRF analyzed on central server':'eIPCRF uploaded - no finalized Development Needs',n?'green':'yellow');await loadEipcrfUploads();if(typeof loadTNAPreview==='function')await loadTNAPreview();}catch(e){msg.textContent='❌ '+e.message;toast('eIPCRF upload failed','red');}}
 async function loadEipcrfUploads(){var tbody=document.getElementById('ipcrfTbl');if(!tbody)return;try{var d=await qlogApi('./api/eipcrf');qlogEipcrfUploads=d.uploads||[];renderEipcrfRows();}catch(e){tbody.innerHTML='<tr><td colspan="7">Unable to load eIPCRF uploads: '+qlogEsc(e.message)+'</td></tr>';}}
-function renderEipcrfRows(){var tbody=document.getElementById('ipcrfTbl');if(!tbody)return;if(!qlogEipcrfUploads.length){tbody.innerHTML='<tr><td colspan="7">No eIPCRF uploads found.</td></tr>';return;}tbody.innerHTML=qlogEipcrfUploads.map(function(u,i){var cls=u.parse_status==='PARSED'?'ok':(u.parse_status==='NO_NEEDS_FOUND'?'warn':'bad');var label=u.parse_status==='PARSED'?'PARSED: '+u.extracted_count+' NEED(S)':u.parse_status.replace(/_/g,' ');return '<tr><td>'+(i+1)+'</td><td><b>'+qlogEsc(u.teacher_name)+'</b><div class="file-meta">'+qlogEsc(u.teacher_id)+'</div></td><td>'+qlogEsc(u.school_year||'--')+'</td><td>'+qlogEsc(u.original_name)+'<br><button style="padding:5px 8px;margin-top:5px" onclick="window.open(qlogApiUrl(\'/api/eipcrf/'+u.id+'/file\'),\'_blank\')">Open File</button></td><td><span class="status-pill '+cls+'">'+qlogEsc(label)+'</span><div class="file-meta" style="margin-top:5px">'+qlogEsc(u.parse_message||'')+'</div>'+(Number(u.extracted_count)>0?'<button style="padding:5px 8px;margin-top:5px;background:#475569" onclick="viewEipcrfNeeds('+u.id+')">View Needs</button>':'')+'</td><td>'+qlogEsc(qlogFmtDate(u.uploaded_at))+'</td><td><button style="padding:6px 9px;background:#dc2626" onclick="deleteEipcrf('+u.id+')">Delete</button></td></tr>';}).join('');}
-async function viewEipcrfNeeds(id){try{var d=await qlogApi('./api/eipcrf/'+id+'/needs');var list=d.developmentNeeds||[];alert(list.length?'Extracted Development Needs:\n\n'+list.map(function(x,i){return(i+1)+'. '+x;}).join('\n'):'No extracted Development Needs.');}catch(e){alert(e.message);}}
+function renderEipcrfRows(){var tbody=document.getElementById('ipcrfTbl');if(!tbody)return;if(!qlogEipcrfUploads.length){tbody.innerHTML='<tr><td colspan="7">No eIPCRF uploads found.</td></tr>';return;}tbody.innerHTML=qlogEipcrfUploads.map(function(u,i){var cls=u.parse_status==='PARSED'?'ok':(u.parse_status==='NO_NEEDS_FOUND'?'warn':'bad');var label=u.parse_status==='PARSED'?'PARSED: '+u.extracted_count+' NEED(S)':u.parse_status.replace(/_/g,' ');return '<tr><td>'+(i+1)+'</td><td><b>'+qlogEsc(u.teacher_name)+'</b><div class="file-meta">'+qlogEsc(u.teacher_id)+'</div></td><td>'+qlogEsc(u.school_year||'--')+'</td><td>'+qlogEsc(u.original_name)+'<br><button style="padding:5px 8px;margin-top:5px" onclick="window.open(qlogApiUrl(\'/api/eipcrf/'+u.id+'/file\'),\'_blank\')">Open File</button></td><td><span class="status-pill '+cls+'">'+qlogEsc(label)+'</span><div class="file-meta" style="margin-top:5px">'+qlogEsc(u.parse_message||'')+'</div>'+(Number(u.extracted_count)>0?'<button style="padding:5px 8px;margin-top:5px;background:#475569" onclick="viewEipcrfNeeds('+u.id+')">View Needs</button>':'')+'<button style="padding:5px 8px;margin-top:5px;margin-left:5px;background:#334155" onclick="viewEipcrfAnalysis('+u.id+')">Analysis</button>'+'</td><td>'+qlogEsc(qlogFmtDate(u.uploaded_at))+'</td><td><button style="padding:6px 9px;background:#dc2626" onclick="deleteEipcrf('+u.id+')">Delete</button></td></tr>';}).join('');}
+async function viewEipcrfNeeds(id){try{var d=await qlogApi('/api/eipcrf/'+id+'/needs');var list=d.developmentNeeds||[];var msg=list.length?'Extracted Development Needs:\n\n'+list.map(function(x,i){return(i+1)+'. '+x.need_text+(x.need_group?' ['+x.need_group+']':'')+(x.score!=null?' - score '+x.score:'');}).join('\n'):'No extracted Development Needs.';alert(msg);}catch(e){alert(e.message);}}
+async function viewEipcrfAnalysis(id){try{var d=await qlogApi('/api/eipcrf/'+id+'/analysis'),a=d.analysis||{},g=a.groups||{};var msg='eIPCRF Analysis\n\nParser: '+(a.parser||'Unknown')+'\nSheet: '+(a.sheet||'N/A')+'\nProfessional Standards: '+(g.professional||0)+'\nCore Behavioral: '+(g.coreBehavioral||0)+'\nLeadership: '+(g.leadership||0)+'\n\n'+(a.note||d.message||'');alert(msg);}catch(e){alert(e.message);}}
 async function deleteEipcrf(id){if(!confirm('Delete this eIPCRF upload and its extracted Development Needs?'))return;try{await qlogApi('./api/eipcrf/'+id,{method:'DELETE'});toast('eIPCRF upload deleted','green');await loadEipcrfUploads();}catch(e){alert(e.message);}}
+async function loadTNAPreview(){try{var d=await qlogApi('/api/tna/preview');qlogLastTNA=d.tna;renderTNA(d.tna);}catch(e){console.warn('TNA preview unavailable',e.message);}}
 async function generateTNA(){var box=document.getElementById('tnaResult');box.className='tna-empty';box.innerHTML='Generating consolidated TNA...';try{var d=await qlogApi('./api/tna/generate',{method:'POST'});qlogLastTNA=d.tna;renderTNA(qlogLastTNA);toast('TNA generated from latest teacher eIPCRF uploads','green');}catch(e){box.innerHTML='Unable to generate TNA: '+qlogEsc(e.message);toast('TNA generation failed','red');}}
 function renderTNA(tna){var stats=document.getElementById('tnaStats'),box=document.getElementById('tnaResult'),actions=document.getElementById('tnaActions');stats.innerHTML='<div class="prof-stat">Latest Teacher Uploads<b>'+Number(tna.totalTeachersWithLatestUpload||0)+'</b></div><div class="prof-stat">Teachers Analyzed<b>'+Number(tna.totalTeachersAnalyzed||0)+'</b></div><div class="prof-stat">Needs Not Parsed<b>'+Number(tna.totalLatestUploadsWithNoParsedNeeds||0)+'</b></div><div class="prof-stat">Consolidated Priorities<b>'+Number((tna.priorities||[]).length)+'</b></div>';if(!tna.priorities||!tna.priorities.length){box.className='tna-empty';box.innerHTML='No consolidated Development Needs are available yet. Check the eIPCRF analysis statuses above.';actions.style.display='none';return;}box.className='full-table';box.innerHTML='<table><thead><tr><th>Rank</th><th>Consolidated Development Need</th><th>No. of Teachers</th><th>% of Analyzed Teachers</th><th>Teachers</th><th>Suggested Training Focus</th></tr></thead><tbody>'+tna.priorities.map(function(r){return '<tr><td><b>#'+r.rank+'</b></td><td><b>'+qlogEsc(r.developmentNeed)+'</b></td><td>'+r.teacherCount+'</td><td>'+r.percentage+'%</td><td>'+qlogEsc((r.teachers||[]).join(', '))+'</td><td>'+qlogEsc(r.suggestedTraining)+'</td></tr>';}).join('')+'</tbody></table>';actions.style.display='flex';}
 function exportTNAExcel(){if(!qlogLastTNA||!qlogLastTNA.priorities||!qlogLastTNA.priorities.length){alert('Generate TNA first.');return;}if(typeof XLSX==='undefined'){alert('Excel library is unavailable.');return;}var rows=qlogLastTNA.priorities.map(function(r){return {Rank:r.rank,'Development Need':r.developmentNeed,'No. of Teachers':r.teacherCount,'Percentage':r.percentage+'%','Teachers':(r.teachers||[]).join(', '),'Suggested Training Focus':r.suggestedTraining};});var ws=XLSX.utils.json_to_sheet(rows),wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Consolidated TNA');XLSX.writeFile(wb,'QLog_Consolidated_TNA.xlsx');}
 function printTNA(){if(!qlogLastTNA||!qlogLastTNA.priorities||!qlogLastTNA.priorities.length){alert('Generate TNA first.');return;}var w=window.open('','','width=1100,height=800');if(!w){alert('Allow pop-ups to print the TNA.');return;}var t=qlogLastTNA,html='<html><head><title>QLog Consolidated TNA</title><style>body{font-family:Arial,sans-serif;padding:28px;color:#111827}h2{text-align:center}p{text-align:center;color:#475569}table{width:100%;border-collapse:collapse;margin-top:20px}th,td{border:1px solid #cbd5e1;padding:8px;font-size:12px;vertical-align:top}th{background:#eef2ff}</style></head><body><h2>Training Needs Assessment (TNA)</h2><p>Consolidated from the latest eIPCRF upload of each teacher • Generated '+qlogEsc(qlogFmtDate(t.generatedAt))+'</p><table><thead><tr><th>Rank</th><th>Development Need</th><th>Teachers</th><th>%</th><th>Teacher Names</th><th>Suggested Training Focus</th></tr></thead><tbody>';t.priorities.forEach(function(r){html+='<tr><td>'+r.rank+'</td><td>'+qlogEsc(r.developmentNeed)+'</td><td>'+r.teacherCount+'</td><td>'+r.percentage+'%</td><td>'+qlogEsc((r.teachers||[]).join(', '))+'</td><td>'+qlogEsc(r.suggestedTraining)+'</td></tr>';});html+='</tbody></table></body></html>';w.document.write(html);w.document.close();w.focus();setTimeout(function(){w.print();},300);}
 
-// Window load function added to ensure immediate population
-window.onload = function() {
-    initSuperAuth();
-    renderPeople();
-    renderLogs();
-    if(typeof renderBorrow === 'function') {
-        checkOverdueBooks();
-        renderBorrow();
-    }
-    if(typeof renderBookInventory === 'function') {
-        renderBookInventory();
-    }
-    renderReservations();
-    renderTeacherSelectors();
-};
+// Centralized PWA boot: hydrate from server first, then render/login.
+window.addEventListener('load', async function(){
+    if(typeof qlogCentralBoot==='function') await qlogCentralBoot();
+    // Re-read the authoritative server-hydrated cache into globals.
+    try{people=JSON.parse(localStorage.getItem('people')||'[]');logs=JSON.parse(localStorage.getItem('logs')||'[]');books=JSON.parse(localStorage.getItem('books')||'[]');borrowLogs=JSON.parse(localStorage.getItem('borrowLogs')||'[]');reservations=JSON.parse(localStorage.getItem('reservations')||'[]');auditLogs=JSON.parse(localStorage.getItem('auditLogs')||'[]');}catch(e){}
+    initSuperAuth();renderPeople();renderLogs();if(typeof renderBorrow==='function'){checkOverdueBooks();renderBorrow();}if(typeof renderBookInventory==='function')renderBookInventory();renderReservations();renderTeacherSelectors();loadCertificates();loadEipcrfUploads();loadTNAPreview();
+});
 </script>
 <script>
 /* ===== Offline-first runtime: service worker, status indicator, diagnostics ===== */
@@ -3255,22 +3303,24 @@ if ('serviceWorker' in navigator) {
     el.appendChild(dot); el.appendChild(label);
     el.addEventListener('dblclick', function(){ if (typeof qlogOfflineDiagnostic === 'function') qlogOfflineDiagnostic(); });
     function paint(){
-        if (navigator.onLine){
+        var st=(typeof qlogCentralStatus==='function')?qlogCentralStatus():{serverReady:false,socketReady:false,connectedClients:0};
+        if (navigator.onLine && st.socketReady){
             el.style.background = '#ecfdf5'; el.style.color = '#065f46'; el.style.border = '1px solid #a7f3d0';
             dot.style.background = '#10b981';
-            label.textContent = 'ONLINE';
-            el.title = 'Connected. Core QLog data is synchronized to the Cloudflare-routed SQLite backend; localStorage remains the offline mirror. Double-click for diagnostics.';
+            label.textContent = 'LIVE SYNC';
+            el.title = 'Socket.IO connected to the centralized QLog SQLite server. Connected PWA clients: '+(st.connectedClients||0)+'.';
         } else {
             el.style.background = '#eff6ff'; el.style.color = '#1e3a8a'; el.style.border = '1px solid #bfdbfe';
             dot.style.background = '#2563eb';
-            label.textContent = 'OFFLINE MODE';
-            el.title = 'Offline mode: core logging continues in the local browser mirror and will synchronize to SQLite when the QLog API is reachable again. File uploads require the backend connection. Double-click for diagnostics.';
+            label.textContent = navigator.onLine ? 'SERVER OFFLINE' : 'OFFLINE CACHE';
+            el.title = navigator.onLine ? 'Internet is available but the centralized QLog Socket.IO server is not connected.' : 'Offline cache mode. Server-backed uploads and live sync resume when connection returns.';
         }
     }
     function ready(){ document.body.appendChild(el); paint(); }
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', ready); else ready();
     window.addEventListener('online', paint);
     window.addEventListener('offline', paint);
+    window.addEventListener('qlog-live-status', paint);
 })();
 
 /* Admin/developer offline readiness self-test: run qlogOfflineDiagnostic() in the console */
@@ -3312,7 +3362,7 @@ async function qlogOfflineDiagnostic(silent){
 
     var lsOk = false;
     try{ localStorage.setItem('__qlog_probe','1'); lsOk = localStorage.getItem('__qlog_probe')==='1'; localStorage.removeItem('__qlog_probe'); }catch(e){}
-    add('Offline Local Mirror', lsOk, 'write-through synchronized to SQLite when the QLog server is available');
+    add('Offline Local Mirror', lsOk, 'centralized server cache mirror; Socket.IO is authoritative while online');
     add('Camera API', !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia), 'no internet required');
 
     var navOk = false;

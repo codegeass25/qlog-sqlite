@@ -5,12 +5,10 @@
      icons) so the installed desktop PWA runs with NO internet at all.
    - Cache-first for app resources, network-first for navigations with an
      index.html app-shell fallback.
-   - Never touches localStorage: user data (people, logs, books,
-     borrowLogs, reservations, auditLogs, config, sessions) survives every
-     service-worker update.
+   - Never touches localStorage: server data is centralized in SQLite; localStorage is only an offline cache mirror.
    ===================================================================== */
 
-const CACHE_NAME = "qlogpro-split-v5-0";
+const CACHE_NAME = "qlogpro-central-v6-0";
 
 const PRECACHE_URLS = [
   "./",
