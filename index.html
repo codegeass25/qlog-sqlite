@@ -803,8 +803,8 @@ button:disabled{ opacity:.55; cursor:not-allowed; box-shadow:none; }
 <div class="nav">
     <button class="active-nav" onclick="showTab('live', this)">📊 Live Monitor</button>
     <button onclick="showTab('inventory', this)">👥 Client Inventory</button>
-    <button onclick="showTab('certificates', this)">🎓 Teacher Certificates</button>
-    <button onclick="showTab('eipcrf', this)">🧭 eIPCRF & TNA</button>
+    <button id="certificatesTabBtn" onclick="showTab('certificates', this)">🎓 Teacher Certificates</button>
+    <button id="eipcrfTabBtn" onclick="showTab('eipcrf', this)">🧭 eIPCRF & TNA</button>
     <button id="visitorTabBtn" onclick="showTab('visitors', this)" style="display:none">🧑 Visitors</button>
     <button id="bookInvBtn" onclick="showTab('bookinv', this)">📚 Book Inventory</button>
     <button id="borrowBtn" onclick="showTab('borrow', this)">📖 Book Borrowing</button>
@@ -1162,6 +1162,56 @@ button:disabled{ opacity:.55; cursor:not-allowed; box-shadow:none; }
 <div id="toast" class="toast"></div>
 
 <script>
+/* ===== QLog V6.1 session identity + Guard/Watchman professional-module policy ===== */
+function qlogSessionSnapshot(){
+    try{
+        if(typeof currentSession === 'object' && currentSession && (currentSession.inCharge || currentSession.designation || currentSession.facility || currentSession.role)) return currentSession;
+    }catch(e){}
+    try{return JSON.parse(localStorage.getItem('savedSession') || '{}') || {};}catch(e){return {};}
+}
+function qlogHeaderEncode(v){ try{return encodeURIComponent(String(v == null ? '' : v));}catch(e){return '';} }
+function qlogActor(){
+    var s=qlogSessionSnapshot();
+    return {
+        name:String(s.inCharge||'').trim(),
+        role:String(s.role||'').trim(),
+        designation:String(s.designation||'').trim(),
+        facility:String(s.facility||'').trim()
+    };
+}
+function qlogActorHeaders(h){
+    h=h||{};var a=qlogActor();
+    if(a.name) h['X-QLog-Actor-Name']=qlogHeaderEncode(a.name);
+    if(a.role) h['X-QLog-Actor-Role']=qlogHeaderEncode(a.role);
+    if(a.designation) h['X-QLog-Actor-Designation']=qlogHeaderEncode(a.designation);
+    if(a.facility) h['X-QLog-Actor-Facility']=qlogHeaderEncode(a.facility);
+    return h;
+}
+function isGuardWatchmanSession(){
+    var a=qlogActor();
+    var roleDes=(a.role+' '+a.designation+' '+a.name).toLowerCase();
+    var facility=a.facility.toLowerCase();
+    var guardIdentity=/(^|\b)(guard|watchman|security\s+guard|security\s+personnel|security\s+officer)(\b|$)/i.test(roleDes);
+    var guardFacility=/(guard\s*(house|post|station|office)|guardhouse|security\s*(post|office|station)|(?:main|school|entrance|exit)\s+gate|^gate$)/i.test(facility);
+    return guardIdentity || guardFacility;
+}
+function qlogProfessionalFeaturesAllowed(){ return !isGuardWatchmanSession(); }
+function applyProfessionalModuleVisibility(){
+    var allowed=qlogProfessionalFeaturesAllowed();
+    var certBtn=document.getElementById('certificatesTabBtn');
+    var eipBtn=document.getElementById('eipcrfTabBtn');
+    if(certBtn) certBtn.style.display=allowed?'':'none';
+    if(eipBtn) eipBtn.style.display=allowed?'':'none';
+    if(!allowed){
+        var cert=document.getElementById('certificates'), eip=document.getElementById('eipcrf');
+        if((cert&&cert.classList.contains('active'))||(eip&&eip.classList.contains('active'))){
+            var liveBtn=document.querySelector('.nav button[onclick*="showTab(\'live\'"]');
+            if(liveBtn) showTab('live',liveBtn);
+        }
+    }
+}
+</script>
+<script>
 /* ===== QLog V6 centralized SQLite + Socket.IO bridge ===== */
 (function(){
   var SYNC_KEYS=['people','logs','books','borrowLogs','configData','dynamicFilterData','borrowPolicies','reservations','auditLogs','qlpSuperAuth'];
@@ -1173,7 +1223,7 @@ button:disabled{ opacity:.55; cursor:not-allowed; box-shadow:none; }
   window.QLOG_CLIENT_ID=cid;
   function parseLocal(k){var v=localStorage.getItem(k);if(v===null)return undefined;try{return JSON.parse(v);}catch(e){return v;}}
   function snapshot(){var out={};SYNC_KEYS.forEach(function(k){var v=parseLocal(k);if(v!==undefined)out[k]=v;});return out;}
-  function headers(h){h=h||{};h['X-QLog-Client-Id']=cid;return h;}
+  function headers(h){h=h||{};h['X-QLog-Client-Id']=cid;return qlogActorHeaders(h);}
   async function api(path,opts){opts=opts||{};opts.headers=headers(opts.headers||{});opts.cache='no-store';return fetch(qlogApiUrl(path),opts);}
   function rawApply(key,value,deleted){applyingRemote=true;try{if(deleted)rawRemove.call(localStorage,key);else rawSet.call(localStorage,key,JSON.stringify(value));}finally{applyingRemote=false;}if(typeof window.qlogReloadStateKey==='function')window.qlogReloadStateKey(key,value,deleted);}
   async function pushKey(key,value,deleted){if(!SYNC[key])return;try{var opts={method:deleted?'DELETE':'PUT',headers:{'Content-Type':'application/json'}};if(!deleted)opts.body=JSON.stringify({value:value});var r=await api('/api/state/'+encodeURIComponent(key),opts);if(!r.ok)throw new Error('HTTP '+r.status);serverReady=true;}catch(e){serverReady=false;console.warn('[QLog Central] state write queued in local mirror:',key,e.message);}}
@@ -1192,10 +1242,10 @@ button:disabled{ opacity:.55; cursor:not-allowed; box-shadow:none; }
     socket.on('connect_error',function(){socketReady=false;window.dispatchEvent(new CustomEvent('qlog-live-status'));});
     socket.on('state:changed',function(m){if(!m||m.sourceClientId===cid)return;rawApply(m.key,m.value,!!m.deleted);});
     socket.on('state:bulk',function(m){if(!m||m.sourceClientId===cid||!m.state)return;Object.keys(m.state).forEach(function(k){if(SYNC[k])rawApply(k,m.state[k],false);});});
-    socket.on('certificates:changed',function(){if(typeof loadCertificates==='function')loadCertificates();});
-    socket.on('eipcrf:changed',function(){if(typeof loadEipcrfUploads==='function')loadEipcrfUploads();if(typeof loadTNAPreview==='function')loadTNAPreview();});
-    socket.on('tna:changed',function(){if(typeof loadTNAPreview==='function')loadTNAPreview();});
-    socket.on('tna:generated',function(m){if(m&&m.tna&&typeof renderTNA==='function'){qlogLastTNA=m.tna;renderTNA(m.tna);}});
+    socket.on('certificates:changed',function(){if(qlogProfessionalFeaturesAllowed()&&typeof loadCertificates==='function')loadCertificates();});
+    socket.on('eipcrf:changed',function(){if(qlogProfessionalFeaturesAllowed()&&typeof loadEipcrfUploads==='function')loadEipcrfUploads();if(qlogProfessionalFeaturesAllowed()&&typeof loadTNAPreview==='function')loadTNAPreview();});
+    socket.on('tna:changed',function(){if(qlogProfessionalFeaturesAllowed()&&typeof loadTNAPreview==='function')loadTNAPreview();});
+    socket.on('tna:generated',function(m){if(qlogProfessionalFeaturesAllowed()&&m&&m.tna&&typeof renderTNA==='function'){qlogLastTNA=m.tna;renderTNA(m.tna);}});
     socket.on('presence:count',function(m){window.QLOG_CONNECTED_CLIENTS=m&&m.connectedClients||0;window.dispatchEvent(new CustomEvent('qlog-live-status'));});
     return true;
   }
@@ -1628,6 +1678,10 @@ function finalizeStartup(isLibrarian) {
     document.getElementById('bookInvBtn').style.display = showLib;
     document.getElementById('borrowBtn').style.display = showLib;
     document.getElementById('reservationTabBtn').style.display = showLib;
+
+    // Guard/watchman/security sessions must never see professional teacher modules.
+    applyProfessionalModuleVisibility();
+    if(qlogProfessionalFeaturesAllowed()){ renderTeacherSelectors(); loadCertificates(); loadEipcrfUploads(); loadTNAPreview(); }
 
     if(!isLibrarian && (document.getElementById('bookinv').classList.contains('active') || document.getElementById('borrow').classList.contains('active'))) {
         showTab('live', document.querySelector('.nav button:nth-child(1)'));
@@ -2194,6 +2248,10 @@ function saveAll(){
 }
 
 function showTab(id, btn){
+    if((id === 'certificates' || id === 'eipcrf') && !qlogProfessionalFeaturesAllowed()){
+        toast('Professional teacher files are not available for Guard/Watchman sessions.','yellow');
+        return;
+    }
     if (id === 'reports') {
         var pw = prompt("SECURITY MODULE: Enter Super Administrator Password to access Reports:");
         if (!verifySuperPassword(pw)) {
@@ -3256,14 +3314,15 @@ function qlogOpenTeacherCombo(id){var combo=document.getElementById(id+'Combo');
 function qlogChooseTeacher(id,teacherId){var t=qlogTeacherList().find(function(x){return String(x.id)===String(teacherId);});if(!t)return;document.getElementById(id).value=t.id;document.getElementById(id+'Search').value=qlogTeacherLabel(t);document.getElementById(id+'Combo').classList.remove('open');}
 function selectedTeacher(selectId){var el=document.getElementById(selectId);if(!el||!el.value)return null;return qlogTeacherList().find(function(p){return String(p.id)===String(el.value);})||null;}
 document.addEventListener('click',function(e){document.querySelectorAll('.teacher-combo.open').forEach(function(c){if(!c.contains(e.target))c.classList.remove('open');});});
-async function qlogApi(url,opts){opts=opts||{};opts.headers=opts.headers||{};opts.headers['X-QLog-Client-Id']=window.QLOG_CLIENT_ID||'';opts.cache='no-store';var r=await fetch(qlogApiUrl(url),opts),data=null;try{data=await r.json();}catch(e){data={ok:false,error:'Invalid server response.'};}if(!r.ok||!data.ok)throw new Error(data.error||('HTTP '+r.status));return data;}
+async function qlogApi(url,opts){opts=opts||{};opts.headers=qlogActorHeaders(opts.headers||{});opts.headers['X-QLog-Client-Id']=window.QLOG_CLIENT_ID||'';opts.cache='no-store';var r=await fetch(qlogApiUrl(url),opts),data=null;try{data=await r.json();}catch(e){data={ok:false,error:'Invalid server response.'};}if(!r.ok||!data.ok)throw new Error(data.error||('HTTP '+r.status));return data;}
+async function qlogOpenProtectedFile(path){try{var h=qlogActorHeaders({'X-QLog-Client-Id':window.QLOG_CLIENT_ID||''});var r=await fetch(qlogApiUrl(path),{headers:h,cache:'no-store'});if(!r.ok){var msg='Unable to open file.';try{var j=await r.json();msg=j.error||msg;}catch(e){try{msg=await r.text()||msg;}catch(_){} }throw new Error(msg);}var blob=await r.blob(),url=URL.createObjectURL(blob);var w=window.open(url,'_blank');if(!w){var a=document.createElement('a');a.href=url;a.target='_blank';a.rel='noopener';document.body.appendChild(a);a.click();a.remove();}setTimeout(function(){URL.revokeObjectURL(url);},60000);}catch(e){alert(e.message);}}
 async function uploadCertificate(){var teacher=selectedTeacher('certTeacher'),fileEl=document.getElementById('certFile'),msg=document.getElementById('certUploadMsg');if(!teacher){alert('Select a teacher first.');return;}if(!fileEl.files||!fileEl.files[0]){alert('Select a certificate file.');return;}var fd=new FormData();fd.append('teacherId',teacher.id);fd.append('teacherName',teacher.name);fd.append('title',document.getElementById('certTitle').value.trim());fd.append('certificateType',document.getElementById('certType').value.trim());fd.append('issuer',document.getElementById('certIssuer').value.trim());fd.append('issueDate',document.getElementById('certIssueDate').value);fd.append('notes',document.getElementById('certNotes').value.trim());fd.append('file',fileEl.files[0]);msg.textContent='Uploading certificate...';try{await qlogApi('./api/certificates',{method:'POST',body:fd});msg.textContent='✅ Certificate uploaded and added to the log.';fileEl.value='';document.getElementById('certTitle').value='';document.getElementById('certNotes').value='';toast('Certificate uploaded successfully','green');await loadCertificates();}catch(e){msg.textContent='❌ '+e.message;toast('Certificate upload failed','red');}}
 async function loadCertificates(){var tbody=document.getElementById('certTbl');if(!tbody)return;try{var d=await qlogApi('./api/certificates');qlogCertificates=d.certificates||[];renderCertificateRows();}catch(e){tbody.innerHTML='<tr><td colspan="8">Unable to load certificate log: '+qlogEsc(e.message)+'</td></tr>';}}
-function renderCertificateRows(){var tbody=document.getElementById('certTbl');if(!tbody)return;var q=(document.getElementById('certSearch')||{}).value||'';q=q.toLowerCase();var rows=qlogCertificates.filter(function(c){return !q||[c.teacher_name,c.title,c.certificate_type,c.issuer,c.original_name].join(' ').toLowerCase().indexOf(q)>=0;});if(!rows.length){tbody.innerHTML='<tr><td colspan="8">No certificate uploads found.</td></tr>';return;}tbody.innerHTML=rows.map(function(c,i){return '<tr><td>'+(i+1)+'</td><td><b>'+qlogEsc(c.teacher_name)+'</b><div class="file-meta">'+qlogEsc(c.teacher_id)+'</div></td><td>'+qlogEsc(c.title)+'<div class="file-meta">'+qlogEsc(c.original_name)+'</div></td><td>'+qlogEsc(c.certificate_type||'--')+'<div class="file-meta">'+qlogEsc(c.issuer||'--')+'</div></td><td>'+qlogEsc(c.issue_date||'--')+'</td><td>'+qlogEsc(qlogFmtDate(c.uploaded_at))+'</td><td><button style="padding:6px 9px" onclick="window.open(qlogApiUrl(\'/api/certificates/'+c.id+'/file\'),\'_blank\')">Open</button></td><td><button style="padding:6px 9px;background:#dc2626" onclick="deleteCertificate('+c.id+')">Delete</button></td></tr>';}).join('');}
+function renderCertificateRows(){var tbody=document.getElementById('certTbl');if(!tbody)return;var q=(document.getElementById('certSearch')||{}).value||'';q=q.toLowerCase();var rows=qlogCertificates.filter(function(c){return !q||[c.teacher_name,c.title,c.certificate_type,c.issuer,c.original_name,c.uploaded_by_name].join(' ').toLowerCase().indexOf(q)>=0;});if(!rows.length){tbody.innerHTML='<tr><td colspan="8">No certificate uploads found.</td></tr>';return;}tbody.innerHTML=rows.map(function(c,i){var owner=c.uploaded_by_name?'<div class="file-meta">Uploaded by: '+qlogEsc(c.uploaded_by_name)+'</div>':'<div class="file-meta">Legacy upload: uploader unknown</div>';var del=c.can_delete?'<button style="padding:6px 9px;background:#dc2626" onclick="deleteCertificate('+c.id+')">Delete</button>':'<span class="file-meta">Only uploader can delete</span>';return '<tr><td>'+(i+1)+'</td><td><b>'+qlogEsc(c.teacher_name)+'</b><div class="file-meta">'+qlogEsc(c.teacher_id)+'</div></td><td>'+qlogEsc(c.title)+'<div class="file-meta">'+qlogEsc(c.original_name)+'</div></td><td>'+qlogEsc(c.certificate_type||'--')+'<div class="file-meta">'+qlogEsc(c.issuer||'--')+'</div></td><td>'+qlogEsc(c.issue_date||'--')+'</td><td>'+qlogEsc(qlogFmtDate(c.uploaded_at))+owner+'</td><td><button style="padding:6px 9px" onclick="qlogOpenProtectedFile(\'/api/certificates/'+c.id+'/file\')">Open</button></td><td>'+del+'</td></tr>';}).join('');}
 async function deleteCertificate(id){if(!confirm('Delete this certificate record and its uploaded file?'))return;try{await qlogApi('./api/certificates/'+id,{method:'DELETE'});toast('Certificate deleted','green');await loadCertificates();}catch(e){alert(e.message);}}
 async function uploadEipcrf(){var teacher=selectedTeacher('ipcrfTeacher'),fileEl=document.getElementById('ipcrfFile'),msg=document.getElementById('ipcrfUploadMsg');if(!teacher){alert('Select a teacher first.');return;}if(!fileEl.files||!fileEl.files[0]){alert('Select an eIPCRF Excel/CSV file.');return;}var file=fileEl.files[0],ext=(file.name.split('.').pop()||'').toLowerCase();if(['xlsx','xlsm','xls','csv'].indexOf(ext)<0){alert('eIPCRF accepts .xlsx, .xlsm, .xls, or .csv files.');return;}msg.textContent='Uploading to the central server and analyzing PART 4-IDP Development Needs...';try{var fd=new FormData();fd.append('teacherId',teacher.id);fd.append('teacherName',teacher.name);fd.append('schoolYear',document.getElementById('ipcrfSY').value.trim());fd.append('file',file);var d=await qlogApi('/api/eipcrf',{method:'POST',body:fd});var n=(d.developmentNeeds||[]).length;msg.textContent=n?'✅ Server analysis complete: '+n+' Development Need(s) detected.':'⚠ Uploaded, but the server found no finalized Development Needs. '+((d.upload&&d.upload.parse_message)||'');fileEl.value='';toast(n?'eIPCRF analyzed on central server':'eIPCRF uploaded - no finalized Development Needs',n?'green':'yellow');await loadEipcrfUploads();if(typeof loadTNAPreview==='function')await loadTNAPreview();}catch(e){msg.textContent='❌ '+e.message;toast('eIPCRF upload failed','red');}}
 async function loadEipcrfUploads(){var tbody=document.getElementById('ipcrfTbl');if(!tbody)return;try{var d=await qlogApi('./api/eipcrf');qlogEipcrfUploads=d.uploads||[];renderEipcrfRows();}catch(e){tbody.innerHTML='<tr><td colspan="7">Unable to load eIPCRF uploads: '+qlogEsc(e.message)+'</td></tr>';}}
-function renderEipcrfRows(){var tbody=document.getElementById('ipcrfTbl');if(!tbody)return;if(!qlogEipcrfUploads.length){tbody.innerHTML='<tr><td colspan="7">No eIPCRF uploads found.</td></tr>';return;}tbody.innerHTML=qlogEipcrfUploads.map(function(u,i){var cls=u.parse_status==='PARSED'?'ok':(u.parse_status==='NO_NEEDS_FOUND'?'warn':'bad');var label=u.parse_status==='PARSED'?'PARSED: '+u.extracted_count+' NEED(S)':u.parse_status.replace(/_/g,' ');return '<tr><td>'+(i+1)+'</td><td><b>'+qlogEsc(u.teacher_name)+'</b><div class="file-meta">'+qlogEsc(u.teacher_id)+'</div></td><td>'+qlogEsc(u.school_year||'--')+'</td><td>'+qlogEsc(u.original_name)+'<br><button style="padding:5px 8px;margin-top:5px" onclick="window.open(qlogApiUrl(\'/api/eipcrf/'+u.id+'/file\'),\'_blank\')">Open File</button></td><td><span class="status-pill '+cls+'">'+qlogEsc(label)+'</span><div class="file-meta" style="margin-top:5px">'+qlogEsc(u.parse_message||'')+'</div>'+(Number(u.extracted_count)>0?'<button style="padding:5px 8px;margin-top:5px;background:#475569" onclick="viewEipcrfNeeds('+u.id+')">View Needs</button>':'')+'<button style="padding:5px 8px;margin-top:5px;margin-left:5px;background:#334155" onclick="viewEipcrfAnalysis('+u.id+')">Analysis</button>'+'</td><td>'+qlogEsc(qlogFmtDate(u.uploaded_at))+'</td><td><button style="padding:6px 9px;background:#dc2626" onclick="deleteEipcrf('+u.id+')">Delete</button></td></tr>';}).join('');}
+function renderEipcrfRows(){var tbody=document.getElementById('ipcrfTbl');if(!tbody)return;if(!qlogEipcrfUploads.length){tbody.innerHTML='<tr><td colspan="7">No eIPCRF uploads found.</td></tr>';return;}tbody.innerHTML=qlogEipcrfUploads.map(function(u,i){var cls=u.parse_status==='PARSED'?'ok':(u.parse_status==='NO_NEEDS_FOUND'?'warn':'bad');var label=u.parse_status==='PARSED'?'PARSED: '+u.extracted_count+' NEED(S)':u.parse_status.replace(/_/g,' ');var owner=u.uploaded_by_name?'<div class="file-meta">Uploaded by: '+qlogEsc(u.uploaded_by_name)+'</div>':'<div class="file-meta">Legacy upload: uploader unknown</div>';var del=u.can_delete?'<button style="padding:6px 9px;background:#dc2626" onclick="deleteEipcrf('+u.id+')">Delete</button>':'<span class="file-meta">Only uploader can delete</span>';return '<tr><td>'+(i+1)+'</td><td><b>'+qlogEsc(u.teacher_name)+'</b><div class="file-meta">'+qlogEsc(u.teacher_id)+'</div></td><td>'+qlogEsc(u.school_year||'--')+'</td><td>'+qlogEsc(u.original_name)+'<br><button style="padding:5px 8px;margin-top:5px" onclick="qlogOpenProtectedFile(\'/api/eipcrf/'+u.id+'/file\')">Open File</button></td><td><span class="status-pill '+cls+'">'+qlogEsc(label)+'</span><div class="file-meta" style="margin-top:5px">'+qlogEsc(u.parse_message||'')+'</div>'+(Number(u.extracted_count)>0?'<button style="padding:5px 8px;margin-top:5px;background:#475569" onclick="viewEipcrfNeeds('+u.id+')">View Needs</button>':'')+'<button style="padding:5px 8px;margin-top:5px;margin-left:5px;background:#334155" onclick="viewEipcrfAnalysis('+u.id+')">Analysis</button>'+'</td><td>'+qlogEsc(qlogFmtDate(u.uploaded_at))+owner+'</td><td>'+del+'</td></tr>';}).join('');}
 async function viewEipcrfNeeds(id){try{var d=await qlogApi('/api/eipcrf/'+id+'/needs');var list=d.developmentNeeds||[];var msg=list.length?'Extracted Development Needs:\n\n'+list.map(function(x,i){return(i+1)+'. '+x.need_text+(x.need_group?' ['+x.need_group+']':'')+(x.score!=null?' - score '+x.score:'');}).join('\n'):'No extracted Development Needs.';alert(msg);}catch(e){alert(e.message);}}
 async function viewEipcrfAnalysis(id){try{var d=await qlogApi('/api/eipcrf/'+id+'/analysis'),a=d.analysis||{},g=a.groups||{};var msg='eIPCRF Analysis\n\nParser: '+(a.parser||'Unknown')+'\nSheet: '+(a.sheet||'N/A')+'\nProfessional Standards: '+(g.professional||0)+'\nCore Behavioral: '+(g.coreBehavioral||0)+'\nLeadership: '+(g.leadership||0)+'\n\n'+(a.note||d.message||'');alert(msg);}catch(e){alert(e.message);}}
 async function deleteEipcrf(id){if(!confirm('Delete this eIPCRF upload and its extracted Development Needs?'))return;try{await qlogApi('./api/eipcrf/'+id,{method:'DELETE'});toast('eIPCRF upload deleted','green');await loadEipcrfUploads();}catch(e){alert(e.message);}}
@@ -3278,7 +3337,7 @@ window.addEventListener('load', async function(){
     if(typeof qlogCentralBoot==='function') await qlogCentralBoot();
     // Re-read the authoritative server-hydrated cache into globals.
     try{people=JSON.parse(localStorage.getItem('people')||'[]');logs=JSON.parse(localStorage.getItem('logs')||'[]');books=JSON.parse(localStorage.getItem('books')||'[]');borrowLogs=JSON.parse(localStorage.getItem('borrowLogs')||'[]');reservations=JSON.parse(localStorage.getItem('reservations')||'[]');auditLogs=JSON.parse(localStorage.getItem('auditLogs')||'[]');}catch(e){}
-    initSuperAuth();renderPeople();renderLogs();if(typeof renderBorrow==='function'){checkOverdueBooks();renderBorrow();}if(typeof renderBookInventory==='function')renderBookInventory();renderReservations();renderTeacherSelectors();loadCertificates();loadEipcrfUploads();loadTNAPreview();
+    initSuperAuth();renderPeople();renderLogs();if(typeof renderBorrow==='function'){checkOverdueBooks();renderBorrow();}if(typeof renderBookInventory==='function')renderBookInventory();renderReservations();applyProfessionalModuleVisibility();if(qlogProfessionalFeaturesAllowed()){renderTeacherSelectors();loadCertificates();loadEipcrfUploads();loadTNAPreview();}
 });
 </script>
 <script>

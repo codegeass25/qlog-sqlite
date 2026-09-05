@@ -8,7 +8,7 @@
    - Never touches localStorage: server data is centralized in SQLite; localStorage is only an offline cache mirror.
    ===================================================================== */
 
-const CACHE_NAME = "qlogpro-central-v6-0";
+const CACHE_NAME = "qlogpro-central-v6-1-owner-guard";
 
 const PRECACHE_URLS = [
   "./",
