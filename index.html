@@ -532,7 +532,7 @@ button:disabled{ opacity:.55; cursor:not-allowed; box-shadow:none; }
 
 /* ---------- Installation activation gate ---------- */
 #installGateOverlay{
-  position: fixed; inset:0; z-index: 950;
+  position: fixed; inset:0; z-index: 100000;
   background: var(--grad-header);
   display:none;
   align-items:center; justify-content:center;
@@ -2068,11 +2068,24 @@ function verifyInstallPassword(pw){
     var diff=0; for(var i=0;i<calc.length;i++)diff|=(calc.charCodeAt(i)^g.h.charCodeAt(i));
     return diff===0;
 }
+function _releaseBootSplash(){
+    var splash=document.getElementById('bootSplash');
+    if(!splash)return;
+    splash.classList.add('hidden');
+    splash.style.opacity='0';
+    splash.style.visibility='hidden';
+    splash.style.pointerEvents='none';
+    setTimeout(function(){ if(splash) splash.style.display='none'; },520);
+}
 function initInstallGate(){
+    // The installation gate must be visible BEFORE Superadmin authentication.
+    // bootSplash has a much higher z-index than the gate, so always release it
+    // here; otherwise a fresh/unactivated device is trapped on INITIALIZING SYSTEM.
+    _releaseBootSplash();
     var g=_gateCfg();
     if(!g){ console.warn('[QLog] Installation gate is not compiled in this development build.'); _installActivated=true; initSuperAuth(); return; }
     if(isInstallActivated()){ _installActivated=true; initSuperAuth(); return; }
-    var ov=document.getElementById('installGateOverlay'); if(ov)ov.style.display='flex';
+    var ov=document.getElementById('installGateOverlay'); if(ov){ov.style.display='flex';ov.style.zIndex='100000';}
     var sa=document.getElementById('superAuthOverlay'); if(sa)sa.style.display='none';
     setTimeout(function(){var e=document.getElementById('installGatePassword');if(e)e.focus();},250);
 }
