@@ -3888,7 +3888,16 @@ function printTNA(){if(!qlogLastTNA||!qlogLastTNA.priorities||!qlogLastTNA.prior
 
 // Centralized PWA boot: hydrate from server first, then render/login.
 window.addEventListener('load', async function(){
-    if(typeof qlogCentralBoot==='function') await qlogCentralBoot();
+    // Central availability must never block the PWA boot. If the tunnel/backend
+    // is unavailable, continue into the local/offline cache after a bounded wait.
+    if(typeof qlogCentralBoot==='function'){
+        try{
+            await Promise.race([
+                qlogCentralBoot(),
+                new Promise(function(resolve){setTimeout(function(){resolve(false);},5200);})
+            ]);
+        }catch(e){}
+    }
     // Re-read the authoritative server-hydrated cache into globals.
     try{people=JSON.parse(localStorage.getItem('people')||'[]');logs=JSON.parse(localStorage.getItem('logs')||'[]');books=JSON.parse(localStorage.getItem('books')||'[]');borrowLogs=JSON.parse(localStorage.getItem('borrowLogs')||'[]');reservations=JSON.parse(localStorage.getItem('reservations')||'[]');auditLogs=JSON.parse(localStorage.getItem('auditLogs')||'[]');}catch(e){}
     initInstallGate();renderPeople();renderLogs();if(typeof renderBorrow==='function'){checkOverdueBooks();renderBorrow();}if(typeof renderBookInventory==='function')renderBookInventory();renderReservations();applyProfessionalModuleVisibility();if(qlogProfessionalFeaturesAllowed()){renderTeacherSelectors();loadCertificates();loadEipcrfUploads();loadTNAPreview();}
@@ -3924,11 +3933,16 @@ if ('serviceWorker' in navigator) {
             dot.style.background = '#10b981';
             label.textContent = 'LIVE SYNC';
             el.title = 'Socket.IO connected to the centralized QLog SQLite server. Connected PWA clients: '+(st.connectedClients||0)+'.';
+        } else if (navigator.onLine && st.serverReady){
+            el.style.background = '#f0fdf4'; el.style.color = '#166534'; el.style.border = '1px solid #bbf7d0';
+            dot.style.background = '#22c55e';
+            label.textContent = 'SERVER ONLINE';
+            el.title = st.authenticated ? 'Central API is reachable. Live sync will reconnect automatically.' : 'Central API is reachable. Authenticate the current office profile to enable LIVE SYNC.';
         } else {
             el.style.background = '#eff6ff'; el.style.color = '#1e3a8a'; el.style.border = '1px solid #bfdbfe';
             dot.style.background = '#2563eb';
             label.textContent = navigator.onLine ? 'SERVER OFFLINE' : 'OFFLINE CACHE';
-            el.title = navigator.onLine ? 'Internet is available but the centralized QLog Socket.IO server is not connected.' : 'Offline cache mode. Server-backed uploads and live sync resume when connection returns.';
+            el.title = navigator.onLine ? 'Internet is available but the centralized QLog API health check is not reachable.' : 'Offline cache mode. Server-backed uploads and live sync resume when connection returns.';
         }
     }
     function ready(){ document.body.appendChild(el); paint(); }

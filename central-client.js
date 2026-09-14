@@ -39,7 +39,9 @@
     authInFlight: false,
     reconciling: false,
     switchingProfile: false,
-    socket: null
+    socket: null,
+    serverReady: false,
+    healthTimer: null
   };
 
   function makeSourceId(){
@@ -110,10 +112,45 @@
   }
   function closeAuth(){ var m=document.getElementById('qlogCentralAuthModal'); if(m)m.style.display='none'; }
   function headers(){ var h={'Content-Type':'application/json'}; if(state.token)h.Authorization='Bearer '+state.token; return h; }
+  function emitLiveStatus(){
+    try{window.dispatchEvent(new CustomEvent('qlog-live-status'));}catch(e){}
+  }
+  function setServerReady(value){
+    var next=!!value;
+    if(state.serverReady!==next){state.serverReady=next;emitLiveStatus();}
+    else state.serverReady=next;
+  }
+  async function checkServerHealth(timeoutMs){
+    timeoutMs=Math.max(1000,Number(timeoutMs)||4500);
+    if(!navigator.onLine){setServerReady(false);return false;}
+    var controller=(typeof AbortController==='function')?new AbortController():null;
+    var timeoutHandle=null;
+    try{
+      var opts={cache:'no-store'};
+      if(controller){opts.signal=controller.signal;timeoutHandle=setTimeout(function(){try{controller.abort();}catch(e){}},timeoutMs);}
+      var request=fetch(API_BASE+'/api/health',opts);
+      var r=controller?await request:await Promise.race([request,new Promise(function(resolve){setTimeout(function(){resolve(null);},timeoutMs);})]);
+      var ok=!!(r&&r.ok);
+      setServerReady(ok);
+      return ok;
+    }catch(e){
+      setServerReady(false);
+      return false;
+    }finally{
+      if(timeoutHandle)clearTimeout(timeoutHandle);
+    }
+  }
   async function api(path,options){
     var opts=options||{};
     opts.headers=Object.assign(headers(),opts.headers||{});
-    var res=await fetch(API_BASE+path,opts);
+    var res;
+    try{
+      res=await fetch(API_BASE+path,opts);
+      setServerReady(true);
+    }catch(e){
+      setServerReady(false);
+      throw e;
+    }
     var data=null; try{data=await res.json();}catch(e){}
     if(!res.ok){var err=new Error(data&&data.error?data.error:('HTTP '+res.status));err.status=res.status;err.data=data;throw err;}
     return data;
@@ -763,9 +800,9 @@
   }
 
   window.qlogCentralBoot=async function(){
-    try{var r=await fetch(API_BASE+'/api/health',{cache:'no-store'});return !!r.ok;}catch(e){return false;}
+    return await checkServerHealth(4500);
   };
-  window.qlogCentralStatus=function(){return {serverReady:!!state.token&&navigator.onLine,socketReady:!!(state.socket&&state.socket.connected),clientId:state.sourceId,connectedClients:window.QLOG_CONNECTED_CLIENTS||0,profileKey:state.activeProfileKey};};
+  window.qlogCentralStatus=function(){return {serverReady:!!state.serverReady&&navigator.onLine,socketReady:!!(state.socket&&state.socket.connected),authenticated:!!state.token,clientId:state.sourceId,connectedClients:window.QLOG_CONNECTED_CLIENTS||0,profileKey:state.activeProfileKey};};
 
   window.QLogCentral={
     connect:function(){var i=document.getElementById('qlogCentralCode');if(i)connectWithCode(i.value.trim());},
@@ -787,5 +824,11 @@
     profileChanged:profileChanged
   };
 
-  window.addEventListener('load',function(){setTimeout(init,1200);});
+  window.addEventListener('load',function(){
+    setTimeout(init,1200);
+    setTimeout(function(){checkServerHealth(3500);},250);
+    if(!state.healthTimer){state.healthTimer=setInterval(function(){if(navigator.onLine)checkServerHealth(3500);else setServerReady(false);},15000);}
+  });
+  window.addEventListener('online',function(){checkServerHealth(3500);});
+  window.addEventListener('offline',function(){setServerReady(false);});
 })();
